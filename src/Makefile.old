@@ -1,0 +1,19 @@
+CC=g++ -g
+DEF= -DNO_EMBEDDED_ACCESS_CHECKS -DMYSQL_DYNAMIC_PLUGIN
+SRCS = $(wildcard *.cc task/*.cc util/*.cc io/*.cc data_pack/*.cc net/*.cc value/*.cc config/*.cc manager/*.cc)
+OBJS = $(SRCS:.cc=.o)
+INC = -I./include
+
+
+.SUFFIXES : .o .cc
+%.o : %.cc
+	$(CC) $(INC) -g  -fPIC -O2 -Wall  -o $@  -c  $< 
+
+all:scouter
+scouter: $(OBJS)
+	$(CC) -shared -o libscouter.so $(OBJS)
+
+clean:
+	echo $(OBJS)
+	rm -rf $(OBJS)
+	
