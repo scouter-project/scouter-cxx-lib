@@ -6,5 +6,5 @@ C++ library for Scouter
 1. cmake . 
 2. make
    
-
+* Document will be added soon.
     
