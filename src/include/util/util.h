@@ -15,6 +15,7 @@
 #include <stdint.h>
 #include <sys/time.h>
 #include <string>
+#include <ctime>
 using namespace std;
 namespace scouter {
 
@@ -34,6 +35,7 @@ public:
 	static int64_t get_next_key();
     static void to_int(const char* value, int* dest);
     static int str2int(const string& str);
+	static int get_day();
     template<typename T>
     static string num_to_string(T value) {
         std::ostringstream ss;

@@ -165,6 +165,13 @@ namespace scouter {
             return false;
         }
     }
+
+	int util::get_day() {
+		time_t now = time(0);
+		tm *ltm = localtime(&now);
+		return ltm->tm_mday;
+		
+	}
 } /* namespace scouter */
 
 
