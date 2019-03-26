@@ -11,7 +11,7 @@
 #include "net/socket_client.h"
 #include <netinet/in.h>
 #include <queue>
-
+#include <vector>
 using namespace std;
 namespace scouter {
 class pack;
@@ -27,9 +27,11 @@ public:
 	//bool connect();
 	//bool is_connected();
 	int send(char* buffer,int32_t len);
-	void send_multi_packet(char* buffer, int32_t len);
-	void send_multi_packet(int64_t key, int32_t total,int32_t num, int packet_size, char* buffer);
+	void send_group_packet(char* buffer, int32_t len);
+	void send_group_packet(int64_t key, int32_t total,int32_t num, int packet_size, char* buffer);
 	void set_addr(std::string ip, int port);
+	void send(std::vector<data_output*>& out_list);
+	void send_pack_list(char* buffer,int32_t len, int16_t count); 
 };
 
 } /* namespace scouter */

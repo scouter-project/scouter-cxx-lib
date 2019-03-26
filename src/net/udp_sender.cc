@@ -15,6 +15,7 @@
 #include "net/net_constants.h"
 #ifdef __WITH_TUNA__
 #include "config/tuna_conf.h"
+#include "util/trace_util.h"
 #endif
 
 namespace scouter {
@@ -89,6 +90,9 @@ bool udp_sender::add(pack* pack) {
 	if(running) {
 		pthread_mutex_lock(&mutex);
 		data_queue.push(pack);
+#ifdef __TUNA_DEBUG___
+		tuna::trace_util::get_instance()->print_message("[debug] add pack to udp sernder sending queue");	
+#endif
 		pthread_mutex_unlock(&mutex);
 		return true;
 	} else {
@@ -112,10 +116,14 @@ void udp_sender::run() {
             data_queue.pop();
             delete pk;
         }else if(data_queue.size() > 1) {
-         send_multi_pack(queue_size);
+			send(queue_size);
         }
         pthread_mutex_unlock(&mutex);
-        sleep(1);
+#ifdef __LINUX__
+        usleep(50000);
+#else 
+        sleep(50);
+#endif
     }
 }
 
@@ -131,8 +139,10 @@ void udp_sender::stop() {
 
 
 void udp_sender::send(pack* pk) {
+#ifdef __TUNA_DEBUG__
+	tuna::trace_util::get_instance()->print_message("[debug] udp_sender::send(pack *pk) called");	
+#endif
 	data_output* out = new data_output();
-	out->write_bytes(net_constants::SINGLE_PACK,4);
 	char* buffer = out->write_pack(pk)->to_byte_array();
 	int len = out->get_offset();
 	udp->send(buffer,len);
@@ -141,47 +151,8 @@ void udp_sender::send(pack* pk) {
 }
 
 
-void udp_sender::send(std::vector<data_output*>& outs) {
-	int size = outs.size();
-	if(size == 0) {
-		return;
-	} else if(size == 1) { //multi 로 보내려고 그랬으나 하나의 pack 이  udp max size 를 초과했을 때
-		data_output* out = new data_output();
-		out->write_bytes(net_constants::SINGLE_PACK,4);
-		data_output* temp = outs[0];
-		char* buffer = temp->to_byte_array();
-		out->write_bytes(buffer,temp->get_offset());
-		char* send_buffer = out->to_byte_array();
-		udp->send(send_buffer,out->get_offset());
-		delete out;
-		out = 0;
-		delete[] send_buffer;
-		delete[] buffer;
-		delete temp;
-		temp = 0;
-	} else if(size > 1){
-		data_output* out = new data_output();
-		out->write_bytes(net_constants::MULTI_PACK,4);
-		out->write_int16(size);
-		for(int i = 0; i < size; i++) {
-			data_output* temp_out = outs[i];
-			char* buffer = temp_out->to_byte_array();
-			out->write_bytes(buffer,temp_out->get_offset()	);
-			delete temp_out;
-			temp_out = 0;
-			delete[] buffer;
-		}
-		char* send_buffer = out->to_byte_array();
-		udp->send(send_buffer,out->get_offset());
-		delete[] send_buffer;
-		delete out;
-		out = 0;
-	}
 
-}
-
-
-void udp_sender::send_multi_pack(int pack_count) {
+void udp_sender::send(int pack_count) {
 	int32_t size = 0;
     int max_udp_packet_size = configure::MAX_PACKET_SIZE;
 #ifdef __WITH_TUNA__
@@ -193,7 +164,7 @@ void udp_sender::send_multi_pack(int pack_count) {
 		out->write_pack(pk);
 		int buff_size = out->get_offset();
 		if(size + buff_size > max_udp_packet_size) {
-			send(buffer_vector);
+			udp->send(buffer_vector);
 			size = 0;
 			buffer_vector.clear();
 		}
@@ -203,7 +174,7 @@ void udp_sender::send_multi_pack(int pack_count) {
 		delete pk;
 
 	}
-	send(buffer_vector);
+	udp->send(buffer_vector);
 	buffer_vector.clear();
 }
 

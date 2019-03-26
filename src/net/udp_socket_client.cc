@@ -18,6 +18,8 @@
 #include <cerrno>
 #ifdef __WITH_TUNA__
 #include "log/ap_log.h"
+#include "config/tuna_conf.h"
+#include "util/trace_util.h"
 #endif
 
 namespace scouter {
@@ -85,38 +87,138 @@ bool udp_socket_client::is_connected() {
 */
 
 int udp_socket_client::send(char* buffer, int32_t len) {
-	if(len > configure::MAX_PACKET_SIZE) {
-		char* buff = new char[len-4];
-		memcpy(buff,buffer + 4, len -4);
-		send_multi_packet(buff,len);
-		delete[] buff;
+	int max_packet_size = 0; 
+#ifdef __WITH_TUNA__
+	max_packet_size = tuna::tuna_conf::get_instance()->get_udp_max_packet_size();
+#else 
+	max_packet_size = configure::MAX_PACKET_SIZE; 
+#endif
+	if(len > max_packet_size) {
+		send_group_packet(buffer,len);
 		return 0;
 	}
-	//return ::send(sockfd,buffer,len,0);
-	return ::sendto(sockfd,buffer,len,0,dest_addr,sizeof(*dest_addr));
+	char* buff = new char[len + 4];
+	memcpy(buff,net_constants::SINGLE_PACK,4);
+	memcpy(buff + 4,buffer,len);
+	::sendto(sockfd,buff,len + 4,0,dest_addr,sizeof(*dest_addr));
+#ifdef __WITH_TUNA__
+	if(tuna::tuna_conf::get_instance()->get_trace_udp_packet()) {
+		tuna::trace_util::get_instance()->print_packet(buff,len+4);
+	}
+#endif
+#ifdef __TUNA_DEBUG__
+	tuna::trace_util::get_instance()->print_message("[debug] udp_scoket::send_single pack");	
+#endif
+	delete[] buff;
+	return 0;
+
+}
+void udp_socket_client::send(std::vector<data_output*>& out_list) {
+	int max_packet_size = 0; 
+#ifdef __WITH_TUNA__
+	max_packet_size = tuna::tuna_conf::get_instance()->get_udp_max_packet_size();
+#else 
+	max_packet_size = configure::MAX_PACKET_SIZE; 
+#endif
+	int size = out_list.size();
+	if(size == 0) {
+		return;
+	} else if(size == 1) { 
+		data_output* out  = out_list[0];
+		char* buffer = out->to_byte_array();
+		send(buffer,out->get_offset());
+		delete out;
+		out = 0;
+		delete[] buffer;
+	} else if(size > 1){
+		data_output* send_out = new data_output();
+		int16_t  count = 0; 
+		for(int i = 0; i < size; i++) {
+			data_output* out = out_list[i];
+			char* buffer = out->to_byte_array();
+			int len = out->get_offset();
+			if(len > max_packet_size) {
+				send_group_packet(buffer,len);
+			} else if((len + send_out->get_offset()) > max_packet_size ){
+				char* send_buffer = send_out->to_byte_array();
+				send_pack_list(send_buffer,send_out->get_offset(),count);
+				delete send_out;
+				send_out = 0; 
+				delete[] send_buffer;
+				send_out = new data_output();
+				send_out->write_bytes(buffer,len);
+				count = 1;
+			} else {
+				char* buffer = out->to_byte_array();
+				send_out->write_bytes(buffer,out->get_offset());
+				count++;
+				delete[] buffer;
+			}
+			delete out;
+			out = 0; 
+			delete[] buffer;
+		}
+		int send_size = send_out->get_offset();
+		if(send_size > 0) {
+			char* sbuffer = send_out->to_byte_array();
+			send_pack_list(sbuffer,send_size,count);
+			delete send_out;
+			send_out = 0; 
+			delete[] sbuffer;
+		}
+	}
+
 }
 
+void udp_socket_client::send_pack_list(char* buffer,int32_t len, int16_t count) {
+#ifdef __TUNA_DEBUG__
+		tuna::trace_util::get_instance()->print_message("[debug] udp_scoket::send_pack_list");	
+#endif
+	data_output* out = new data_output();
+	out->write_bytes(net_constants::MULTI_PACK,4);
+	out->write_int16(count);
+	out->write_bytes(buffer,len);
+	char* send_buff = out->to_byte_array();
+	::sendto(sockfd,send_buff,out->get_offset() ,0,dest_addr,sizeof(*dest_addr));
+#ifdef __WITH_TUNA__
+	if(tuna::tuna_conf::get_instance()->get_trace_udp_packet()) {
+		tuna::trace_util::get_instance()->print_packet(send_buff,out->get_offset());
+	}
+#endif
+	delete out;
+	out = 0;
+	delete[] send_buff;
+}
 
-void udp_socket_client::send_multi_packet(char* buffer, int32_t len) {
+void udp_socket_client::send_group_packet(char* buffer, int32_t len) {
+	int max_packet_size = 0; 
+#ifdef __WITH_TUNA__
+	max_packet_size = tuna::tuna_conf::get_instance()->get_udp_max_packet_size();
+#else 
+	max_packet_size = configure::MAX_PACKET_SIZE;
+#endif
+#ifdef __TUNA_DEBUG__
+	tuna::trace_util::get_instance()->print_message("[debug] udp_scoket::send_group_packet");	
+#endif
 	int64_t key = util::get_next_key();
-	int32_t total = len / configure::MAX_PACKET_SIZE;
-	int32_t remain = len % configure::MAX_PACKET_SIZE;
+	int32_t total = len / max_packet_size;
+	int32_t remain = len % max_packet_size;
 	if(remain > 0) {
 		total++;
 	}
 
 	int num = 0;
-	for(num = 0 ; num < len / configure::MAX_PACKET_SIZE ; num++	) {
-		char* buff = new char[configure::MAX_PACKET_SIZE];
-		memcpy(buff,buffer + (num * configure::MAX_PACKET_SIZE),configure::MAX_PACKET_SIZE);
-		send_multi_packet(key,total,num,configure::MAX_PACKET_SIZE,buff);
+	for(num = 0 ; num < len / max_packet_size ; num++	) {
+		char* buff = new char[max_packet_size];
+		memcpy(buff,buffer + (num * max_packet_size),max_packet_size);
+		send_group_packet(key,total,num,max_packet_size,buff);
 		delete[] buff;
 	}
 
 	if(remain > 0) {
 		char* buff = new char[remain];
-		memcpy(buff,buffer + len - remain, remain);
-		send_multi_packet(key,total,num,remain,buff);
+		memcpy(buff,buffer + (len - remain), remain);
+		send_group_packet(key,total,num,remain,buff);
 		delete[] buff;
 	}
 
@@ -124,7 +226,7 @@ void udp_socket_client::send_multi_packet(char* buffer, int32_t len) {
 }
 
 
-void udp_socket_client::send_multi_packet(int64_t key, int32_t total,	int32_t num, int packet_size, char* buffer) {
+void udp_socket_client::send_group_packet(int64_t key, int32_t total,	int32_t num, int packet_size, char* buffer) {
 	data_output* out = new data_output();
 	int32_t obj_hash =  obj_name_util::get_instance()->object_hash();
 	out->write_bytes(net_constants::MTU_PACK,4);

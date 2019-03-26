@@ -34,7 +34,7 @@ private :
 	bool running;
 
 	//void send(std::vector<data_output*> outs);
-	void send_multi_pack(int pack_count);
+	void send(int pack_count);
 	configure* conf;
 
 public:
@@ -47,8 +47,6 @@ public:
 	void start();
 	socket_client* get_socket();
     void set_net_queue_size(int n);
-
-	void send(std::vector<data_output*>& outs);
 	void send(pack* pk);
 };
 
